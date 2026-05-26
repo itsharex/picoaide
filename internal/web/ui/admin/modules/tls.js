@@ -1,115 +1,237 @@
-export async function init(ctx) {
-  const { Api, showMsg, $ } = ctx;
-  var currentStatus = {};
+var pendingCert = '';
+var pendingKey = '';
 
-  await loadStatus();
+export function init({ Api, esc, showMsg, confirmModal }) {
+  const statusCard = document.getElementById('tls-status-card');
+  const toggleCard = document.getElementById('tls-toggle-card');
+  const uploadCard = document.getElementById('tls-upload-card');
+  if (!statusCard || !toggleCard || !uploadCard) return;
 
-  $('#tls-enabled').addEventListener('change', function() {
-    $('#cert-upload-card').style.display = this.value === 'true' ? 'block' : 'none';
-  });
+  const enabledLabel = document.getElementById('tls-enabled-label');
+  const subjectEl = document.getElementById('tls-subject');
+  const sansEl = document.getElementById('tls-sans');
+  const hostMatchEl = document.getElementById('tls-host-match');
+  const issuerEl = document.getElementById('tls-issuer');
+  const notAfterEl = document.getElementById('tls-not-after');
 
-  $('#save-btn').addEventListener('click', saveConfig);
-  $('#reset-btn').addEventListener('click', async () => {
-    if (await confirmModal('重新加载？未保存的修改将丢失。')) loadStatus();
-  });
+  const toggleInput = document.getElementById('tls-toggle-input');
+  const toggleStatus = document.getElementById('tls-toggle-status');
 
+  const certFileInput = document.getElementById('cert-file-input');
+  const keyFileInput = document.getElementById('key-file-input');
+  const verifyBtn = document.getElementById('tls-verify-btn');
+  const verifyResult = document.getElementById('tls-verify-result');
+  const saveBtn = document.getElementById('tls-save-btn');
+  const clearBtn = document.getElementById('tls-clear-btn');
+
+  // 验证结果各字段
+  const vSubject = document.getElementById('verify-subject');
+  const vSans = document.getElementById('verify-sans');
+  const vHostMatch = document.getElementById('verify-host-match');
+  const vIssuer = document.getElementById('verify-issuer');
+  const vNotAfter = document.getElementById('verify-not-after');
+  const vStatus = document.getElementById('verify-status');
+
+  var currentEnabled = false;
+  var hasCert = false;
+
+  // ========== 加载状态 ==========
   async function loadStatus() {
-    showMsg('#tls-msg', '加载中...', true);
     try {
-      var res = await Api.get('/api/admin/tls/status');
-      if (!res.success) { showMsg('#tls-msg', res.error, false); return; }
-      currentStatus = res;
-      renderStatus();
-      showMsg('#tls-msg', '');
-    } catch (e) { showMsg('#tls-msg', e.message, false); }
+      const resp = await Api.get('/api/admin/tls/status');
+      if (!resp.success || !resp.data) {
+        enabledLabel.textContent = '加载失败';
+        return;
+      }
+      renderStatus(resp.data);
+    } catch (e) {
+      enabledLabel.textContent = '查询失败';
+    }
   }
 
-  function renderStatus() {
-    var el = $('#tls-status');
-    if (currentStatus.configured && currentStatus.cert_info) {
-      var info = currentStatus.cert_info;
-      el.innerHTML =
-        '<div class="grid-2">' +
-        '  <div>HTTPS: ' + (currentStatus.enabled ? '已启用' : '未启用') + '</div>' +
-        '  <div>域名: ' + esc(info.subject) + '</div>' +
-        '  <div>颁发者: ' + esc(info.issuer) + '</div>' +
-        '  <div>过期: ' + esc(formatDate(info.not_after)) + '</div>' +
-        '  <div>SANs: ' + esc((info.sans || []).join(', ')) + '</div>' +
-        '</div>';
-      $('#current-cert-info').textContent = '当前证书: ' + info.subject + '，更换证书请重新选择文件';
+  function renderStatus(d) {
+    currentEnabled = d.enabled;
+    hasCert = d.has_cert;
+
+    // HTTPS 状态
+    if (d.enabled && d.has_cert) {
+      enabledLabel.innerHTML = '<span style="color:var(--green)">已启用</span>';
+    } else if (d.has_cert) {
+      enabledLabel.innerHTML = '<span style="color:var(--orange)">未启用</span>';
     } else {
-      el.innerHTML = '<div class="text-sm text-muted">尚未配置证书</div>';
-      $('#current-cert-info').textContent = '';
+      enabledLabel.textContent = '未配置';
     }
-    $('#tls-enabled').value = currentStatus.enabled ? 'true' : 'false';
-    $('#cert-upload-card').style.display = currentStatus.enabled ? 'block' : 'none';
+
+    subjectEl.textContent = d.subject || '-';
+    sansEl.textContent = d.sans ? d.sans.join(', ') : '-';
+
+    if (d.host_match === true) {
+      hostMatchEl.innerHTML = '<span style="color:var(--green)">&#10003; 匹配</span>';
+    } else if (d.host_match === false) {
+      hostMatchEl.innerHTML = '<span style="color:var(--red)">&#10007; 不匹配</span>';
+    } else {
+      hostMatchEl.textContent = '-';
+    }
+
+    issuerEl.textContent = d.issuer || '-';
+    if (d.not_after) {
+      const date = new Date(d.not_after);
+      notAfterEl.textContent = date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+      if (d.expired) {
+        notAfterEl.innerHTML += ' <span style="color:var(--red)">（已过期）</span>';
+      }
+    }
+
+    // Toggle 开关
+    toggleInput.checked = d.enabled && d.has_cert;
+    toggleStatus.textContent = d.enabled && d.has_cert ? '已启用' : (d.has_cert ? '已关闭' : '请先上传证书');
   }
 
-  async function saveConfig() {
-    var enabled = $('#tls-enabled').value === 'true';
+  // ========== 文件选择 ==========
+  function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('文件读取失败'));
+      reader.readAsText(file);
+    });
+  }
 
-    if (enabled) {
-      var certFile = $('#cert-file').files && $('#cert-file').files[0];
-      var keyFile = $('#key-file').files && $('#key-file').files[0];
+  certFileInput.addEventListener('change', checkFilesReady);
+  keyFileInput.addEventListener('change', checkFilesReady);
 
-      if (!currentStatus.configured && !certFile) {
-        showMsg('#tls-msg', '请选择证书文件', false);
-        return;
-      }
-      if (!currentStatus.configured && !keyFile) {
-        showMsg('#tls-msg', '请选择私钥文件', false);
-        return;
-      }
-    }
+  function checkFilesReady() {
+    verifyBtn.disabled = !certFileInput.files.length || !keyFileInput.files.length;
+    verifyResult.style.display = 'none';
+  }
 
-    showMsg('#tls-msg', '保存中...', true);
+  // ========== 验证证书 ==========
+  verifyBtn.addEventListener('click', async () => {
+    const certFile = certFileInput.files[0];
+    const keyFile = keyFileInput.files[0];
+    if (!certFile || !keyFile) return;
 
     try {
-      var csrf = await getCSRF();
-      var form = new FormData();
-      form.append('enabled', enabled ? 'true' : 'false');
-      form.append('csrf_token', csrf);
-      if (enabled && $('#cert-file').files[0]) form.append('cert', $('#cert-file').files[0]);
-      if (enabled && $('#key-file').files[0]) form.append('key', $('#key-file').files[0]);
+      pendingCert = await readFileAsText(certFile);
+      pendingKey = await readFileAsText(keyFile);
+    } catch (e) {
+      showMsg('tls-msg', '文件读取失败: ' + e.message, 'error');
+      return;
+    }
 
-      var base = await getServerUrl();
-      var resp = await fetch(base + '/api/admin/tls/upload', {
-        method: 'POST',
-        credentials: 'include',
-        body: form,
+    try {
+      const resp = await Api.post('/api/admin/tls/verify', {
+        cert_pem: pendingCert,
+        key_pem: pendingKey,
       });
-      var res = await resp.json();
-      showMsg('#tls-msg', res.message || res.error, !!res.success);
-      if (res.success) {
-        currentStatus.enabled = enabled;
-        if (res.cert_info) {
-          currentStatus.configured = true;
-          currentStatus.cert_info = res.cert_info;
-        } else {
-          currentStatus.configured = false;
-          currentStatus.cert_info = null;
-        }
-        renderStatus();
+      if (!resp.success) {
+        showMsg('tls-msg', resp.error || '证书验证失败', 'error');
+        return;
       }
-    } catch (e) { showMsg('#tls-msg', e.message, false); }
+      showVerifyResult(resp.data);
+    } catch (e) {
+      showMsg('tls-msg', '验证失败: ' + e.message, 'error');
+    }
+  });
+
+  function showVerifyResult(d) {
+    vSubject.textContent = d.subject || '-';
+    vSans.textContent = d.sans ? d.sans.join(', ') : '-';
+
+    if (d.host_match === true) {
+      vHostMatch.innerHTML = '<span style="color:var(--green)">&#10003; 匹配 (当前域名)</span>';
+    } else if (d.host_match === false) {
+      vHostMatch.innerHTML = '<span style="color:var(--red)">&#10007; 不匹配当前域名</span>';
+    } else {
+      vHostMatch.textContent = '-';
+    }
+
+    vIssuer.textContent = d.issuer || '-';
+    if (d.not_after) {
+      const date = new Date(d.not_after);
+      vNotAfter.textContent = date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+      if (d.expired) {
+        vNotAfter.innerHTML += ' <span style="color:var(--red)">（已过期）</span>';
+      }
+    }
+
+    if (d.expired) {
+      vStatus.innerHTML = '<span style="color:var(--red)">&#10007; 证书已过期</span>';
+    } else if (d.host_match === false) {
+      vStatus.innerHTML = '<span style="color:var(--orange)">&#9888; 域名不匹配</span>';
+    } else {
+      vStatus.innerHTML = '<span style="color:var(--green)">&#10003; 证书有效</span>';
+    }
+
+    verifyResult.style.display = 'block';
   }
 
-  function esc(s) {
-    if (s == null) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
+  // ========== 保存证书 ==========
+  saveBtn.addEventListener('click', async () => {
+    if (!pendingCert || !pendingKey) {
+      showMsg('tls-msg', '请先验证证书', 'error');
+      return;
+    }
+    try {
+      const resp = await Api.post('/api/admin/tls/save', {
+        cert_pem: pendingCert,
+        key_pem: pendingKey,
+        enabled: 'true',
+      });
+      showMsg('tls-msg', resp.message || '证书已保存', resp.success ? 'success' : 'error');
+      if (resp.success) {
+        pendingCert = '';
+        pendingKey = '';
+        certFileInput.value = '';
+        keyFileInput.value = '';
+        verifyResult.style.display = 'none';
+        verifyBtn.disabled = true;
+        await loadStatus();
+      }
+    } catch (e) {
+      showMsg('tls-msg', '保存失败: ' + e.message, 'error');
+    }
+  });
 
-  function formatDate(iso) {
-    if (!iso) return '';
-    return new Date(iso).toLocaleString('zh-CN');
-  }
+  // ========== Toggle HTTPS ==========
+  toggleInput.addEventListener('change', async () => {
+    const enabled = toggleInput.checked;
+    try {
+      const resp = await Api.post('/api/admin/tls/toggle', { enabled: String(enabled) });
+      if (resp.success) {
+        toggleStatus.textContent = enabled ? '已启用' : '已关闭';
+        showMsg('tls-msg', resp.message || 'HTTPS 开关已切换', 'success');
+        await loadStatus();
+      } else {
+        toggleInput.checked = !enabled;
+        showMsg('tls-msg', resp.error || '切换失败', 'error');
+      }
+    } catch (e) {
+      toggleInput.checked = !enabled;
+      showMsg('tls-msg', '切换失败: ' + e.message, 'error');
+    }
+  });
 
-  async function getCSRF() {
-    var res = await Api.get('/api/csrf');
-    return res.csrf_token || '';
-  }
+  // ========== 清除证书 ==========
+  clearBtn.addEventListener('click', async () => {
+    if (!await confirmModal('确定要清除证书吗？此操作将关闭 HTTPS。')) return;
+    try {
+      const resp = await Api.post('/api/admin/tls/clear');
+      showMsg('tls-msg', resp.message || '证书已清除', resp.success ? 'success' : 'error');
+      if (resp.success) {
+        pendingCert = '';
+        pendingKey = '';
+        certFileInput.value = '';
+        keyFileInput.value = '';
+        verifyResult.style.display = 'none';
+        verifyBtn.disabled = true;
+        await loadStatus();
+      }
+    } catch (e) {
+      showMsg('tls-msg', '清除失败: ' + e.message, 'error');
+    }
+  });
 
-  async function getServerUrl() {
-    return window.location.origin.replace(/\/+$/, '');
-  }
+  // ========== 初始化 ==========
+  loadStatus();
 }
