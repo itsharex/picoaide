@@ -68,19 +68,34 @@ export async function init(ctx) {
       var ch = currentChannels.find(function(item) { return item.key === currentChannel; }) || {};
       $('#channel-title').textContent = ch.label || currentChannel || '渠道配置';
       $('#channel-subtitle').textContent = (ch.enabled ? '当前渠道已启用' : (ch.configured ? '当前渠道已配置但未启用' : '当前渠道尚未配置')) + '，保存后生效';
-      renderChannelFields(data.fields || [], data.enabled);
+      renderChannelFields(data.fields || [], data.enabled, data.guide_url);
     } catch (e) {
       showMsg('#channel-msg', e.message, false);
     }
   }
 
-  function renderChannelFields(fields, enabled) {
+  function renderChannelFields(fields, enabled, guideUrl) {
     var box = $('#channel-fields');
     if (!fields.length) {
       box.innerHTML = '<p class="text-muted">当前渠道没有可配置字段。</p>';
       return;
     }
+    var guideHtml = '';
+    if (guideUrl) {
+      guideHtml = '<div class="field"><label>创建助手指引</label><p style="margin:0;font-size:.85rem">首次使用请先查看 <a href="' + esc(guideUrl) + '" target="_blank" style="color:var(--primary)">创建 AI 助手教程</a>，然后在对应开放平台完成应用创建，再将凭据填写到下方。</p></div>';
+    }
+    var warningHtml =
+      '<div class="field" style="padding:0.75rem;background:var(--bg-warning, #fff8e1);border:1px solid var(--border-warning, #ffe082);border-radius:6px">' +
+      '<p style="margin:0 0 0.5rem;font-weight:600;font-size:.85rem">⚠️ 安全提醒</p>' +
+      '<ul style="margin:0;padding-left:1.2em;font-size:.82rem;line-height:1.8">' +
+      '<li>请勿将该助手添加到群聊中，其他人可以通过群聊直接操作你的助手。</li>' +
+      '<li>请勿将该助手分享给他人使用。你的助手拥有你的完整权限，分享助手等于把你的登录凭证交给了别人。</li>' +
+      '<li>他人通过你的助手进行的任何操作，最终都会记录在你的名下。请珍惜账号安全。</li>' +
+      '<li><strong>请记住：人人都有自己的私人助手</strong>，请勿共享。</li>' +
+      '</ul></div>';
     box.innerHTML =
+      guideHtml +
+      warningHtml +
       '<div class="field"><label>启用该渠道</label>' +
       '<label class="toggle-switch toggle-switch-field">' +
         '<input type="checkbox" data-channel-field="enabled" data-field-type="boolean"' + (enabled ? ' checked' : '') + '>' +

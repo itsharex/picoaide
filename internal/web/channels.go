@@ -17,9 +17,10 @@ import (
 
 // channelDef 渠道定义
 type channelDef struct {
-  Key    string        `json:"key"`
-  Label  string        `json:"label"`
-  Fields []channelField `json:"fields,omitempty"`
+  Key      string         `json:"key"`
+  Label    string         `json:"label"`
+  GuideURL string         `json:"guide_url,omitempty"`
+  Fields   []channelField `json:"fields,omitempty"`
 }
 
 // channelField 渠道配置字段定义
@@ -32,8 +33,9 @@ type channelField struct {
 
 var channelDefs = []channelDef{
   {
-    Key:   "dingtalk",
-    Label: "钉钉",
+    Key:      "dingtalk",
+    Label:    "钉钉",
+    GuideURL: "https://open.dingtalk.com/document/development/build-dingtalk-ai-employees",
     Fields: []channelField{
       {Key: "client_id", Label: "Client ID", Type: "text", Hint: "钉钉应用的 AppKey"},
       {Key: "client_secret", Label: "Client Secret", Type: "password", Hint: "钉钉应用的 AppSecret"},
@@ -41,8 +43,9 @@ var channelDefs = []channelDef{
     },
   },
   {
-    Key:   "feishu",
-    Label: "飞书",
+    Key:      "feishu",
+    Label:    "飞书",
+    GuideURL: "https://open.feishu.cn/document/home/develop-a-bot-in-5-minutes",
     Fields: []channelField{
       {Key: "app_id", Label: "App ID", Type: "text", Hint: "飞书应用的 App ID"},
       {Key: "app_secret", Label: "App Secret", Type: "password", Hint: "飞书应用的 App Secret"},
@@ -50,8 +53,9 @@ var channelDefs = []channelDef{
     },
   },
   {
-    Key:   "wecom",
-    Label: "企业微信",
+    Key:      "wecom",
+    Label:    "企业微信",
+    GuideURL: "https://developer.work.weixin.qq.com/document/path/101039",
     Fields: []channelField{
       {Key: "bot_id", Label: "Bot ID", Type: "text", Hint: "企业微信机器人的 Bot ID"},
       {Key: "secret", Label: "Secret", Type: "password", Hint: "企业微信机器人的 Secret"},
@@ -211,9 +215,10 @@ func (s *Server) handleChannelConfigFieldsGet(c *gin.Context) {
   enabled := userChan != nil && userChan.Enabled
 
   writeJSON(c, http.StatusOK, map[string]interface{}{
-    "success": true,
-    "fields":  fields,
-    "enabled": enabled,
+    "success":   true,
+    "fields":    fields,
+    "enabled":   enabled,
+    "guide_url": def.GuideURL,
   })
 }
 

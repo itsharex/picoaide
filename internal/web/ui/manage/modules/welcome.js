@@ -42,11 +42,10 @@ export async function init(ctx) {
       '安装 Chrome 扩展', {primary: true}
     ));
   } else if (browser === 'edge') {
-    var edgeBtn = buildLink('#', '安装 Edge 扩展', {primary: true});
-    edgeBtn.style.opacity = '0.5';
-    edgeBtn.style.pointerEvents = 'none';
-    edgeBtn.title = '即将上线';
-    extContainer.appendChild(edgeBtn);
+    extContainer.appendChild(buildLink(
+      'https://microsoftedge.microsoft.com/addons/detail/picoaide-helper/ginmidepabefnppgcdcoicoplfomagkg',
+      '安装 Edge 扩展', {primary: true}
+    ));
   } else {
     extContainer.appendChild(buildLink(
       'https://chromewebstore.google.com/detail/nbmhmeodjpfmoldjomngknknakklebje?authuser=0&hl=zh-CN',
